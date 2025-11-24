@@ -1,48 +1,32 @@
-import User from "../../models/User";
-import jwt from "jsonwebtoken";
-import connectDB from "../../utils/connectDB";
+const jwt = require('jsonwebtoken');
+const User = require('../models/User');
 
-export default async function handler(req, res) {
-  await connectDB();
-
-  if (req.method !== "POST") {
-    return res.status(405).json({ message: "Method not allowed" });
-  }
-
+const auth = async (req, res, next) => {
   try {
-    const { name, email, password, role } = req.body;
-
-    let user = await User.findOne({ email });
-    if (user) {
-      return res.status(400).json({ message: "User already exists" });
+    const token = req.header('Authorization').replace('Bearer ', '');
+    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'secret');
+    const user = await User.findById(decoded.id).select('-password');
+    
+    if (!user) {
+      throw new Error();
     }
-
-    const newUser = new User({
-      name,
-      email,
-      password,
-      role: role || "user"
-    });
-
-    await newUser.save();
-
-    const token = jwt.sign(
-      { id: newUser.id },
-      process.env.JWT_SECRET || "secret",
-      { expiresIn: "1h" }
-    );
-
-    res.status(201).json({
-      token,
-      user: {
-        id: newUser.id,
-        name: newUser.name,
-        email: newUser.email,
-        role: newUser.role
-      }
-    });
+    
+    req.user = user;
+    next();
   } catch (error) {
-    console.error(error.message);
-    res.status(500).send("Server error");
+    res.status(401).json({ message: 'Please authenticate' });
   }
-}
+};
+
+const adminAuth = async (req, res, next) => {
+  try {
+    if (req.user.role !== 'admin') {
+      return res.status(403).json({ message: 'Access denied. Admin only.' });
+    }
+    next();
+  } catch (error) {
+    res.status(500).json({ message: 'Server error' });
+  }
+};
+
+module.exports = { auth, adminAuth };
